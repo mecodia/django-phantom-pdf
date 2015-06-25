@@ -5,6 +5,7 @@ from subprocess import Popen, STDOUT, PIPE
 import os
 import phantom_pdf_bin
 import urlparse
+import urllib
 import uuid
 
 from django.conf import settings
@@ -76,16 +77,21 @@ class RequestToPDF(object):
             if not os.path.isdir(dir_):
                 os.makedirs(dir_)
 
-    def _build_url(self, request):
+    def _build_url(self, request, get_data):
         """Build the url for the request."""
         scheme, netloc, path, query, fragment = urlparse.urlsplit(
             request.build_absolute_uri())
         protocol = scheme
         domain = netloc
-        return '{protocol}://{domain}{path}'.format(
+        if get_data:
+            custom_query = urllib.urlencode(get_data)
+        else:
+            custom_query = ''
+        return '{protocol}://{domain}{path}?{query}'.format(
             protocol=protocol,
             domain=domain,
-            path=path)
+            path=path,
+            query=custom_query)
 
     def _save_cookie_data(self, request):
         """Save csrftoken and sessionid in a cookie file for authentication."""
@@ -130,7 +136,8 @@ class RequestToPDF(object):
                        format=None,
                        orientation=None,
                        margin=None,
-                       make_response=True):
+                       make_response=True,
+                       get_data=None):
         """Receive request, basename and return a PDF in an HttpResponse.
             If `make_response` is True return an HttpResponse otherwise file_src. """
 
@@ -146,7 +153,7 @@ class RequestToPDF(object):
             pass
 
         cookie_file = self._save_cookie_data(request)
-        url = self._build_url(request)
+        url = self._build_url(request, get_data)
 
         domain = urlparse.urlsplit(
             request.build_absolute_uri()
@@ -181,7 +188,8 @@ def render_to_pdf(request, basename,
                   format=None,
                   orientation=None,
                   margin=None,
-                  make_response=True):
+                  make_response=True,
+                  get_data=None):
     """Helper function for rendering a request to pdf.
     Arguments:
         request = django request.
@@ -192,5 +200,5 @@ def render_to_pdf(request, basename,
     """
     request2pdf = RequestToPDF()
     response = request2pdf.request_to_pdf(request, basename, format=format,
-                                          orientation=orientation, margin=margin, make_response=make_response)
+                                          orientation=orientation, margin=margin, make_response=make_response, get_data=get_data)
     return response
