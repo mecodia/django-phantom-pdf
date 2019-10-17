@@ -4,9 +4,15 @@ import logging
 from subprocess import Popen, STDOUT, PIPE
 import os
 import phantom_pdf_bin
-import urlparse
-import urllib
 import uuid
+
+try:
+    # python 2.7
+    from urllib import urlencode
+    from urlparse import urlsplit
+except ImportError:
+    # python 3+
+    from urllib.parse import urlencode, urlsplit
 
 from django.conf import settings
 from django.http import HttpResponse
@@ -56,19 +62,9 @@ class RequestToPDF(object):
         self.PHANTOMJS_GENERATE_PDF = PHANTOMJS_GENERATE_PDF
         self.KEEP_PDF_FILES = KEEP_PDF_FILES
 
-        for attr in [
-                'PHANTOMJS_COOKIE_DIR',
-                'PHANTOMJS_PDF_DIR',
-                'PHANTOMJS_BIN',
-                'PHANTOMJS_GENERATE_PDF',
-                'KEEP_PDF_FILES',
-                'PHANTOMJS_FORMAT',
-                'PHANTOMJS_ORIENTATION',
-                'PHANTOMJS_MARGIN']:
+        for attr, default_value in DEFAULT_SETTINGS.items():
             if getattr(self, attr, None) is None:
-                value = getattr(settings, attr, None)
-                if value is None:
-                    value = DEFAULT_SETTINGS[attr]
+                value = getattr(settings, attr, default_value)
                 setattr(self, attr, value)
 
         assert os.path.isfile(self.PHANTOMJS_BIN), \
@@ -79,19 +75,19 @@ class RequestToPDF(object):
 
     def _build_url(self, request, get_data):
         """Build the url for the request."""
-        scheme, netloc, path, query, fragment = urlparse.urlsplit(
-            request.build_absolute_uri())
-        protocol = scheme
-        domain = netloc
+        protocol, domain, path, query, fragment = urlsplit(
+            request.build_absolute_uri()
+        )
         if get_data:
-            custom_query = urllib.urlencode(get_data)
+            custom_query = urlencode(get_data)
         else:
             custom_query = ''
         return '{protocol}://{domain}{path}?{query}'.format(
             protocol=protocol,
             domain=domain,
             path=path,
-            query=custom_query)
+            query=custom_query
+        )
 
     def _save_cookie_data(self, request):
         """Save csrftoken and sessionid in a cookie file for authentication."""
@@ -100,23 +96,21 @@ class RequestToPDF(object):
                 self.PHANTOMJS_COOKIE_DIR, str(uuid.uuid1())
             ), '.cookie.txt'
         ))
+        cookie = '{cookie} {session}'.format(
+            cookie=request.COOKIES.get(settings.CSRF_COOKIE_NAME, 'nocsrftoken'),
+            session=request.COOKIES.get(settings.SESSION_COOKIE_NAME, 'nosessionid')
+        )
         with open(cookie_file, 'w+') as fh:
-            cookie = ''.join((
-                request.COOKIES.get(settings.CSRF_COOKIE_NAME, 'nocsrftoken'),
-                ' ',
-                request.COOKIES.get(settings.SESSION_COOKIE_NAME, 'nosessionid')
-            ))
             fh.write(cookie)
         return cookie_file
 
     def _set_source_file_name(self, basename=str(uuid.uuid1())):
         """Return the original source filename of the pdf."""
-        return ''.join((os.path.join(self.PHANTOMJS_PDF_DIR, basename), '.pdf'))
+        return os.path.join(self.PHANTOMJS_PDF_DIR, basename) + '.pdf'
 
     def _return_response(self, file_src, basename):
         """Read the generated pdf and return it in a django HttpResponse."""
         # Open the file created by PhantomJS
-        return_file = None
         with open(file_src, 'rb') as f:
             return_file = f.readlines()
 
@@ -124,8 +118,7 @@ class RequestToPDF(object):
             return_file,
             content_type='application/pdf'
         )
-        content_disposition = 'attachment; filename=%s.pdf' % (basename)
-        response['Content-Disposition'] = content_disposition
+        response['Content-Disposition'] = 'attachment; filename={filename}.pdf'.format(filename=basename)
 
         if not self.KEEP_PDF_FILES:  # remove generated pdf files
             os.remove(file_src)
@@ -155,7 +148,7 @@ class RequestToPDF(object):
         cookie_file = self._save_cookie_data(request)
         url = self._build_url(request, get_data)
 
-        domain = urlparse.urlsplit(
+        domain = urlsplit(
             request.build_absolute_uri()
         ).netloc.split(':')[0]
 
