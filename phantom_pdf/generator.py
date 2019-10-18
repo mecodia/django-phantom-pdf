@@ -40,12 +40,7 @@ DEFAULT_SETTINGS = dict(
 class RequestToPDF(object):
     """Class for rendering a requested page to a PDF."""
 
-    def __init__(self,
-                 PHANTOMJS_COOKIE_DIR=None,
-                 PHANTOMJS_PDF_DIR=None,
-                 PHANTOMJS_BIN=None,
-                 PHANTOMJS_GENERATE_PDF=None,
-                 KEEP_PDF_FILES=None):
+    def __init__(self, **kwargs):
         """Arguments:
             PHANTOMJS_COOKIE_DIR = Directory where the temp cookies will be saved.
             PHANTOMJS_PDF_DIR = Directory where you want to the PDF to be saved temporarily.
@@ -56,28 +51,20 @@ class RequestToPDF(object):
             PHANTOMJS_ORIENTATION = How the page will be positioned when printing.
             PHANTOMJS_MARGIN = The margins of the PDF.
         """
-        self.PHANTOMJS_COOKIE_DIR = PHANTOMJS_COOKIE_DIR
-        self.PHANTOMJS_PDF_DIR = PHANTOMJS_PDF_DIR
-        self.PHANTOMJS_BIN = PHANTOMJS_BIN
-        self.PHANTOMJS_GENERATE_PDF = PHANTOMJS_GENERATE_PDF
-        self.KEEP_PDF_FILES = KEEP_PDF_FILES
-
         for attr, default_value in DEFAULT_SETTINGS.items():
-            if getattr(self, attr, None) is None:
-                value = getattr(settings, attr, default_value)
-                setattr(self, attr, value)
+            value = kwargs.get(attr) or getattr(settings, attr, default_value)
+            setattr(self, attr, value)
 
-        assert os.path.isfile(self.PHANTOMJS_BIN), \
-            "%s doesnt exist, read the docs for more info." % self.PHANTOMJS_BIN
-        for dir_ in [self.PHANTOMJS_COOKIE_DIR, self.PHANTOMJS_PDF_DIR]:
-            if not os.path.isdir(dir_):
-                os.makedirs(dir_)
+        if not os.path.isfile(self.PHANTOMJS_BIN):
+            raise RuntimeError("{} doesn't exist, read the docs for more info.".format(self.PHANTOMJS_BIN))
+
+        for directory in (self.PHANTOMJS_COOKIE_DIR, self.PHANTOMJS_PDF_DIR):
+            if not os.path.isdir(directory):
+                os.makedirs(directory)
 
     def _build_url(self, request, get_data):
         """Build the url for the request."""
-        protocol, domain, path, query, fragment = urlsplit(
-            request.build_absolute_uri()
-        )
+        protocol, domain, path, query, fragment = urlsplit(request.build_absolute_uri())
         if get_data:
             custom_query = urlencode(get_data)
         else:
@@ -91,11 +78,7 @@ class RequestToPDF(object):
 
     def _save_cookie_data(self, request):
         """Save csrftoken and sessionid in a cookie file for authentication."""
-        cookie_file = ''.join((
-            os.path.join(
-                self.PHANTOMJS_COOKIE_DIR, str(uuid.uuid1())
-            ), '.cookie.txt'
-        ))
+        cookie_file = os.path.join(self.PHANTOMJS_COOKIE_DIR, str(uuid.uuid1())) + '.cookie.txt'
         cookie = '{cookie} {session}'.format(
             cookie=request.COOKIES.get(settings.CSRF_COOKIE_NAME, 'nocsrftoken'),
             session=request.COOKIES.get(settings.SESSION_COOKIE_NAME, 'nosessionid')
@@ -114,10 +97,7 @@ class RequestToPDF(object):
         with open(file_src, 'rb') as f:
             return_file = f.readlines()
 
-        response = HttpResponse(
-            return_file,
-            content_type='application/pdf'
-        )
+        response = HttpResponse(return_file, content_type='application/pdf')
         response['Content-Disposition'] = 'attachment; filename={filename}.pdf'.format(filename=basename)
 
         if not self.KEEP_PDF_FILES:  # remove generated pdf files
